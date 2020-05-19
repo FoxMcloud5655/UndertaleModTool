@@ -10,15 +10,21 @@ using System.Threading.Tasks;
 
 namespace UndertaleModLib.Models
 {
+    public enum AnimSpeedType : uint
+    {
+        FramesPerSecond = 0,
+        FramesPerGameFrame = 1
+    }
+
     public class UndertaleSprite : UndertaleNamedResource, PrePaddedObject, INotifyPropertyChanged
     {
         private UndertaleString _Name;
         private uint _Width;
         private uint _Height;
-        private uint _MarginLeft;
-        private uint _MarginRight;
-        private uint _MarginBottom;
-        private uint _MarginTop;
+        private int _MarginLeft;
+        private int _MarginRight;
+        private int _MarginBottom;
+        private int _MarginTop;
         private bool _Transparent;
         private bool _Smooth;
         private bool _Preload;
@@ -26,19 +32,19 @@ namespace UndertaleModLib.Models
         private SepMaskType _SepMasks; // Whether or not multiple collision masks will be used. 0-2.
         private int _OriginX;
         private int _OriginY;
-        private uint _GMS2UnknownAlways1 = 1;
+        private uint _GMS2Version = 1;
         private SpriteType _SSpriteType = 0;
         private float _GMS2PlaybackSpeed = 15.0f;
-        private uint _GMS2PlaybackSpeedType = 0;
+        private AnimSpeedType _GMS2PlaybackSpeedType = 0;
         private bool _IsSpecialType = false;
 
         public UndertaleString Name { get => _Name; set { _Name = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Name")); } }
         public uint Width { get => _Width; set { _Width = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Width")); } }
         public uint Height { get => _Height; set { _Height = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Height")); } }
-        public uint MarginLeft { get => _MarginLeft; set { _MarginLeft = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("MarginLeft")); } }
-        public uint MarginRight { get => _MarginRight; set { _MarginRight = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("MarginRight")); } }
-        public uint MarginBottom { get => _MarginBottom; set { _MarginBottom = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("MarginBottom")); } }
-        public uint MarginTop { get => _MarginTop; set { _MarginTop = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("MarginTop")); } }
+        public int MarginLeft { get => _MarginLeft; set { _MarginLeft = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("MarginLeft")); } }
+        public int MarginRight { get => _MarginRight; set { _MarginRight = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("MarginRight")); } }
+        public int MarginBottom { get => _MarginBottom; set { _MarginBottom = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("MarginBottom")); } }
+        public int MarginTop { get => _MarginTop; set { _MarginTop = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("MarginTop")); } }
         public bool Transparent { get => _Transparent; set { _Transparent = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Transparent")); } }
         public bool Smooth { get => _Smooth; set { _Smooth = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Smooth")); } }
         public bool Preload { get => _Preload; set { _Preload = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("Preload")); } }
@@ -50,14 +56,16 @@ namespace UndertaleModLib.Models
         public ObservableCollection<MaskEntry> CollisionMasks { get; } = new ObservableCollection<MaskEntry>();
         
         // Special sprite types (always used in GMS2)
-        public uint SUnknownAlways1 { get => _GMS2UnknownAlways1; set { _GMS2UnknownAlways1 = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("SUnknownAlways1")); } }
+        public uint SVersion { get => _GMS2Version; set { _GMS2Version = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("SVersion")); } }
         public SpriteType SSpriteType { get => _SSpriteType; set { _SSpriteType = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("SSpriteType")); } }
         public float GMS2PlaybackSpeed { get => _GMS2PlaybackSpeed; set { _GMS2PlaybackSpeed = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("GMS2PlaybackSpeed")); } }
-        public uint GMS2PlaybackSpeedType { get => _GMS2PlaybackSpeedType; set { _GMS2PlaybackSpeedType = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("GMS2PlaybackSpeedType")); } }
+        public AnimSpeedType GMS2PlaybackSpeedType { get => _GMS2PlaybackSpeedType; set { _GMS2PlaybackSpeedType = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("GMS2PlaybackSpeedType")); } }
         public bool IsSpecialType { get => _IsSpecialType; set { _IsSpecialType = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs("IsSpecialType")); } }
 
         public byte[] S_Spine_Data;
         public byte[] S_SWF_Data;
+
+        public UndertaleSequence V2Sequence;
 
         public event PropertyChangedEventHandler PropertyChanged;
 
@@ -141,13 +149,20 @@ namespace UndertaleModLib.Models
             writer.Write(OriginY);
             if (IsSpecialType)
             {
+                uint patchPos = 0;
+
                 writer.Write(-1);
-                writer.Write(SUnknownAlways1);
+                writer.Write(SVersion);
                 writer.Write((uint)SSpriteType);
                 if (writer.undertaleData.GeneralInfo?.Major >= 2)
                 {
                     writer.Write(GMS2PlaybackSpeed);
-                    writer.Write(GMS2PlaybackSpeedType);
+                    writer.Write((uint)GMS2PlaybackSpeedType);
+                    if (SVersion >= 2)
+                    {
+                        patchPos = writer.Position;
+                        writer.Write((int)0);
+                    }
                 }
 
                 switch (SSpriteType)
@@ -166,6 +181,17 @@ namespace UndertaleModLib.Models
                         Align3(writer);
                         writer.Write(S_Spine_Data);
                         break;
+                }
+
+                // Sequence
+                if (patchPos != 0 && V2Sequence != null) // Normal compiler also checks for sprite type to be normal, but whatever!
+                {
+                    uint returnTo = writer.Position;
+                    writer.Position = patchPos;
+                    writer.Write(returnTo);
+                    writer.Position = returnTo;
+                    writer.Write((int)1);
+                    writer.WriteUndertaleObject(V2Sequence);
                 }
             }
             else
@@ -213,10 +239,10 @@ namespace UndertaleModLib.Models
             Name = reader.ReadUndertaleString();
             Width = reader.ReadUInt32();
             Height = reader.ReadUInt32();
-            MarginLeft = reader.ReadUInt32();
-            MarginRight = reader.ReadUInt32();
-            MarginBottom = reader.ReadUInt32();
-            MarginTop = reader.ReadUInt32();
+            MarginLeft = reader.ReadInt32();
+            MarginRight = reader.ReadInt32();
+            MarginBottom = reader.ReadInt32();
+            MarginTop = reader.ReadInt32();
             Transparent = reader.ReadBoolean();
             Smooth = reader.ReadBoolean();
             Preload = reader.ReadBoolean();
@@ -226,13 +252,17 @@ namespace UndertaleModLib.Models
             OriginY = reader.ReadInt32();
             if (reader.ReadInt32() == -1) // technically this seems to be able to occur on older versions, for special sprite types
             {
+                bool sequence = false;
+
                 IsSpecialType = true;
-                SUnknownAlways1 = reader.ReadUInt32();
+                SVersion = reader.ReadUInt32();
                 SSpriteType = (SpriteType)reader.ReadUInt32();
                 if (reader.undertaleData.GeneralInfo?.Major >= 2)
                 {
                     GMS2PlaybackSpeed = reader.ReadSingle();
-                    GMS2PlaybackSpeedType = reader.ReadUInt32();
+                    GMS2PlaybackSpeedType = (AnimSpeedType)reader.ReadUInt32();
+                    if (SVersion >= 2 && reader.ReadInt32() != 0)
+                        sequence = true;
                 }
 
                 switch (SSpriteType)
@@ -295,6 +325,13 @@ namespace UndertaleModLib.Models
                         }
                         break;
                 }
+
+                if (sequence)
+                {
+                    if (reader.ReadInt32() != 1)
+                        throw new IOException("Expected 1");
+                    V2Sequence = reader.ReadUndertaleObject<UndertaleSequence>();
+                }
             }
             else
             {
@@ -323,80 +360,6 @@ namespace UndertaleModLib.Models
             }
             Debug.Assert(total == CalculateMaskDataSize(Width, Height, MaskCount));
         }
-
-        /**
-         * This is just a stream of bits, with each row aligned to a full byte
-         * and the whole array aligned to 4 bytes
-         * For some reason this code looks scary even though the concept is really simple :P
-         */
-
-        /*private byte[] PackMaskData(bool[][][] unpacked)
-        {
-            byte[] packed = new byte[CalculateMaskDataSize()];
-            uint i = 0;
-            byte temp = 0;
-
-            for(uint maskId = 0; maskId < MaskCount; maskId++)
-            {
-                for(uint y = 0; y < Height; y++)
-                {
-                    for(uint x = 0; x < (Width+7) / 8 * 8; x++)
-                    {
-                        temp = (byte)((temp << 1) | (x < Width ? (unpacked[maskId][y][x] ? 1 : 0) : 0));
-                        i++;
-                        if (i % 8 == 0)
-                        {
-                            packed[(i/8)-1] = temp;
-                            temp = 0;
-                        }
-                    }
-                }
-            }
-            if (i % 32 != 0)
-            {
-                while (i % 32 != 0)
-                {
-                    while (i % 8 != 0 || (i%8 == 0 && i%32 != 0))
-                    {
-                        temp <<= 1;
-                        i++;
-                    }
-                    packed[(i / 8) - 1] = temp;
-                    temp = 0;
-                }
-            }
-            Debug.Assert(i / 8 == packed.Length);
-            return packed;
-        }
-
-        private bool[][][] UnpackMaskData(byte[] packed)
-        {
-            bool[][][] unpacked = new bool[MaskCount][][];
-            uint i = 0;
-            byte temp = packed[0];
-
-            for (uint maskId = 0; maskId < MaskCount; maskId++)
-            {
-                unpacked[maskId] = new bool[Height][];
-                for (uint y = 0; y < Height; y++)
-                {
-                    unpacked[maskId][y] = new bool[Width];
-                    for (uint x = 0; x < (Width + 7) / 8 * 8; x++)
-                    {
-                        if (x < Width)
-                            unpacked[maskId][y][x] = (temp & 0x80) != 0;
-                        temp <<= 1;
-                        i++;
-                        if (i % 8 == 0)
-                        {
-                            temp = i/8 < packed.Length ? packed[i / 8] : (byte)0;
-                        }
-                    }
-                }
-            }
-            Debug.Assert(((i + 31) / 32 * 32)/8 == packed.Length);
-            return unpacked;
-        }*/
 
         public uint CalculateMaskDataSize(uint width, uint height, uint maskcount)
         {
